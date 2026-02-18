@@ -1,27 +1,20 @@
 #!/usr/bin/env python3
 import os
 import asyncio
-import threading
-import queue
-from typing import AsyncGenerator, List, Dict
+from typing import AsyncGenerator, List, Dict, Optional
 from dotenv import load_dotenv
 import google.generativeai as genai
 
-# Load env variables
 load_dotenv("API_Key.env")
 
 API_KEY = os.getenv("GEMINI_API_KEY")
-MODEL_NAME = "gemini-2.5-flash" 
-# gemini-2.0.-flah
-# gemini-2.5-flash
-# gemini-2.5-flash-lite
+MODEL_NAME = "gemini-2.5-flash-lite"
 
 if not API_KEY:
     raise ValueError("❌ GEMINI_API_KEY not found in API_Key.env")
 
 genai.configure(api_key=API_KEY)
 
-# --- 1. CONVERSATIONAL MODEL ---
 SYSTEM_INSTRUCTION = """
 You are Sarah, a professional and friendly real estate agent for Barbie Builders.
 Your goal is to qualify leads by having a natural conversation.
@@ -33,9 +26,8 @@ CRITICAL VOICE RULES:
 4. Do not make up facts. If unsure, say you will check with the team.
 
 CONVERSATION FLOW:
-1. Start by welcoming the user and asking how you can help.
-2. Contextual Awareness: If the user mentions a location, immediately tailor your suggestions to that area.
-3. Data Gathering: Casually collect these details over multiple turns:
+1. Contextual Awareness: If the user mentions a location, immediately tailor your suggestions to that area.
+2. Data Gathering: Casually collect these details over multiple turns:
    - Preferred Location
    - Property Type (3BHK, Villa, Plot)
    - Budget Range
@@ -44,7 +36,7 @@ TONE: Warm, professional, and concise. Treat this like a phone call, not an emai
 """
 
 GEN_CONFIG = genai.GenerationConfig(
-    temperature=0.7,
+    temperature=0.7
 )
 
 model = genai.GenerativeModel(
@@ -52,73 +44,95 @@ model = genai.GenerativeModel(
     system_instruction=SYSTEM_INSTRUCTION
 )
 
-chat_session = model.start_chat(history=[])
-_chat_lock = threading.Lock()
+# ---- Manual history (kept small for latency) ----
+_HISTORY: List[Dict] = []
+_HISTORY_LOCK = asyncio.Lock()
+MAX_TURNS = 10  # last N user+assistant turns
 
+def _trim_history(history: List[Dict]) -> List[Dict]:
+    # Each "turn" here is one message dict; we keep last 2*MAX_TURNS messages.
+    keep = 2 * MAX_TURNS
+    return history[-keep:] if len(history) > keep else history
+
+def _mk_user_msg(text: str) -> Dict:
+    return {"role": "user", "parts": [text]}
+
+def _mk_model_msg(text: str) -> Dict:
+    return {"role": "model", "parts": [text]}
 
 async def get_ai_response_stream(user_text: str) -> AsyncGenerator[str, None]:
     """
-    Yields text chunks from Gemini as they are generated.
-    Uses a thread and a queue to safely bridge sync Gemini and async ARI.
+    Streaming text generator that is interruption-safe:
+    - Does NOT use chat_session.
+    - Appends to history only if the stream completes normally.
     """
-    chunk_queue = asyncio.Queue()
-    SENTINEL = object()
+    # Snapshot current history quickly (don’t hold lock during streaming)
+    async with _HISTORY_LOCK:
+        hist_snapshot = list(_HISTORY)
 
-    def run_gemini_sync():
+    contents = hist_snapshot + [_mk_user_msg(user_text)]
+
+    response_iter = None
+    iterator = None
+    full = []
+
+    def _next_or_none(it):
         try:
-            with _chat_lock:
-                response = chat_session.send_message(
-                    user_text, 
-                    stream=True, 
-                    generation_config=GEN_CONFIG
-                )
-                
-                for chunk in response:
-                    # --- FIX START: Safely handle chunks with no text ---
-                    content = None
-                    try:
-                        content = chunk.text
-                    except Exception:
-                        # Ignore chunks with no text (like finish signals)
-                        pass
-                    
-                    if content:
-                        loop.call_soon_threadsafe(chunk_queue.put_nowait, content)
-                    # --- FIX END ---
-                        
-        except Exception as e:
-            print(f"❌ Gemini Sync Error: {e}")
-            loop.call_soon_threadsafe(chunk_queue.put_nowait, f"Error: {e}")
-        finally:
-            loop.call_soon_threadsafe(chunk_queue.put_nowait, SENTINEL)
+            return next(it)
+        except StopIteration:
+            return None
 
-    loop = asyncio.get_running_loop()
-    thread = threading.Thread(target=run_gemini_sync, daemon=True)
-    thread.start()
+    try:
+        # Start streaming (sync SDK call, so offload to a thread)
+        response_iter = await asyncio.to_thread(
+            model.generate_content,
+            contents,
+            stream=True,
+            generation_config=GEN_CONFIG,
+        )
+        iterator = iter(response_iter)
 
-    while True:
-        item = await chunk_queue.get()
-        if item is SENTINEL:
-            break
-        if isinstance(item, str) and item.startswith("Error:"):
-            # Don't show the user the internal error, just log it above
-            print(f"⚠️ suppressed stream error: {item}") 
-            break
-            
-        yield item
+        while True:
+            chunk = await asyncio.to_thread(_next_or_none, iterator)
+            if chunk is None:
+                break
 
+            # IMPORTANT: only touch chunk.text, never response_iter.text
+            text = None
+            try:
+                text = chunk.text
+            except Exception:
+                text = None
 
-# --- 2. MINUTES OF MEETING MODEL ---
+            if text:
+                full.append(text)
+                yield text
+
+    except asyncio.CancelledError:
+        # Interrupted turn: do not update history
+        raise
+
+    except Exception as e:
+        print(f"❌ Gemini Error: {e}")
+        yield " I'm sorry, I'm having trouble connecting right now."
+        return
+
+    # Stream completed normally: commit to history
+    final_text = "".join(full).strip()
+    if final_text:
+        async with _HISTORY_LOCK:
+            _HISTORY.append(_mk_user_msg(user_text))
+            _HISTORY.append(_mk_model_msg(final_text))
+            _HISTORY[:] = _trim_history(_HISTORY)
+
+# --- MoM model (your code can remain) ---
 mom_model = genai.GenerativeModel(
     model_name=MODEL_NAME,
-    system_instruction="""You are an expert executive assistant. 
+    system_instruction="""You are an expert executive assistant.
 Your task is to summarize sales calls into structured Minutes of Meeting (MoM) documents."""
 )
 
 async def generate_mom(transcript: List[Dict]) -> str:
-    """
-    Generates a structured MoM from the call transcript.
-    """
     if not transcript:
         return "No transcript available."
 
@@ -128,48 +142,36 @@ async def generate_mom(transcript: List[Dict]) -> str:
         conversation_text += f"{role}: {entry['text']}\n"
 
     prompt = f"""
-    Based on the following conversation transcript, create a structured Minutes of Meeting (MoM) document.
-    
-    TRANSCRIPT:
-    {conversation_text}
-    
-    OUTPUT FORMAT (Markdown):
-    # Minutes of Meeting - Barbie Builders
-    
-    ## 1. Call Summary
-    (A brief 2-3 sentence summary of the call)
-    
-    ## 2. Customer Details
-    - **Intent:** (Buying/Selling/Inquiry)
-    - **Key Interests:** (Location, Budget, Type)
-    
-    ## 3. Key Discussion Points
-    - (Bulleted list of main topics discussed)
-    
-    ## 4. Action Items / Next Steps
-    - [ ] (What needs to be done next)
-    
-    ## 5. Sentiment Analysis
-    (Positive/Neutral/Negative)
-    """
+Based on the following conversation transcript, create a structured Minutes of Meeting (MoM) document.
 
+TRANSCRIPT:
+{conversation_text}
+
+OUTPUT FORMAT (Markdown):
+# Minutes of Meeting - Barbie Builders
+
+## 1. Call Summary
+(A brief 2-3 sentence summary of the call)
+
+## 2. Customer Details
+- **Intent:** (Buying/Selling/Inquiry)
+- **Key Interests:** (Location, Budget, Type)
+
+## 3. Key Discussion Points
+- (Bulleted list of main topics discussed)
+
+## 4. Action Items / Next Steps
+- (What needs to be done next)
+
+## 5. Sentiment Analysis
+(Positive/Neutral/Negative)
+"""
     try:
-        loop = asyncio.get_running_loop()
-        
-        def _run_mom_sync():
-            response = mom_model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(temperature=0.3)
-            )
-            return response.text
-
-        mom_text = await loop.run_in_executor(None, _run_mom_sync)
-        return mom_text
-
+        response = await asyncio.to_thread(
+            mom_model.generate_content,
+            prompt,
+            generation_config=genai.GenerationConfig(temperature=0.3)
+        )
+        return response.text
     except Exception as e:
         return f"❌ Failed to generate MoM: {e}"
-
-if __name__ == "__main__":
-    async def main():
-        print("Testing...")
-    asyncio.run(main())

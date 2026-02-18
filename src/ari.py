@@ -115,7 +115,7 @@ async def ensure_whisper_running():
     )
     state["whisper_proc"] = proc
     asyncio.create_task(whisper_reader(proc))
-    print("✅ Whisper listener started")
+    # print("✅ Whisper listener started")
 
 async def whisper_reader(proc):
     while True:
@@ -139,7 +139,7 @@ async def whisper_reader(proc):
             if t == "final":
                 text = (ev.get("text") or "").strip()
                 if text:
-                    print("🎤 STT FINAL:", text)
+                    print("WHISPER FINAL:", text)
                     asyncio.create_task(on_user_text(text))
                 continue
             continue
@@ -159,7 +159,7 @@ async def ensure_piper_running():
     state["piper_proc"] = proc
     asyncio.create_task(piper_reader(proc))
     await asyncio.wait_for(state["piper_ready"].wait(), timeout=10.0)
-    print("✅ Piper worker started")
+    # print("✅ Piper worker started")
 
 async def piper_reader(proc):
     while True:
@@ -195,32 +195,6 @@ async def piper_send(msg: dict):
         proc.stdin.write((json.dumps(msg) + "\n").encode("utf-8"))
         await proc.stdin.drain()
 
-async def piper_stream_say(text: str, host: str, port: int) -> str:
-    stream_id = str(uuid.uuid4())
-    state["active_stream_id"] = stream_id
-    loop = asyncio.get_running_loop()
-    done_fut = loop.create_future()
-    state["piper_waiters"][stream_id] = done_fut
-
-    await piper_send({"cmd": "begin", "id": stream_id, "host": host, "port": int(port)})
-    try:
-        await piper_send({"cmd": "chunk", "id": stream_id, "text": text})
-        status = await done_fut
-        return status
-    except asyncio.CancelledError:
-        try:
-            await asyncio.shield(piper_send({"cmd": "cancel", "id": stream_id}))
-        except Exception:
-            pass
-        raise
-    finally:
-        try:
-            await asyncio.shield(piper_send({"cmd": "end", "id": stream_id}))
-        except Exception:
-            pass
-        if state.get("active_stream_id") == stream_id:
-            state["active_stream_id"] = None
-
 async def piper_cancel_active():
     stream_id = state.get("active_stream_id")
     if not stream_id: return
@@ -231,7 +205,7 @@ async def piper_cancel_active():
     state["active_stream_id"] = None
     fut = state["piper_waiters"].get(stream_id)
     if fut and not fut.done():
-        try: await asyncio.wait_for(fut, timeout=2.0)
+        try: await asyncio.wait_for(fut, timeout=0.2)
         except asyncio.TimeoutError: pass
 
 # ----------------- Turn logic -----------------
@@ -257,7 +231,7 @@ async def on_user_text(text: str):
     async def _speak(seq: int):
         cancelled = False
         await set_mode("SPEAK")
-        print("🗣️ TURN: THINKING (Streaming)...")
+        # print("THINKING")
 
         host, port = state["tts_target"]
         stream_id = str(uuid.uuid4())
@@ -283,22 +257,26 @@ async def on_user_text(text: str):
 
                 while True:
                     import re
-                    match = re.search(r'([.?!]+)', buffer)
+                    match = re.search(r'([.?!]+|[,;:])', buffer)
                     if match:
                         end_idx = match.end()
                         sentence = buffer[:end_idx].strip()
                         buffer = buffer[end_idx:]
                         
                         if sentence:
-                            print(f"  -> Sending chunk: '{sentence}'")
+                            # print(f"  -> Sending chunk: '{sentence}'")
                             await piper_send({"cmd": "chunk", "id": stream_id, "text": sentence})
                     else:
                         break
             
             if buffer.strip() and not cancelled:
-                 print(f"  -> Sending final chunk: '{buffer.strip()}'")
+                #  print(f"  -> Sending final chunk: '{buffer.strip()}'")
                  await piper_send({"cmd": "chunk", "id": stream_id, "text": buffer.strip()})
                  full_response += buffer
+
+            if full_response.strip():
+                print(f"GEMINI: {full_response.strip()}")
+
 
             # 2. Record Agent Response for MoM
             if full_response.strip() and not cancelled:
@@ -329,12 +307,13 @@ async def on_user_text(text: str):
             if (not cancelled) and state.get("call_active") and state.get("speak_seq") == seq:
                 await asyncio.sleep(POST_TTS_LISTEN_GUARD_SEC)
                 await set_mode("LISTEN")
-                print("🎧 TURN: LISTEN")
+                print("___LISTENING___")
 
     state["speak_task"] = asyncio.create_task(_speak(my_seq))
 
 async def on_barge_in():
-    print("⚡ BARGE-IN: cancel TTS, back to LISTEN")
+    # print("Barge in detected")
+    print("\nBack to LISTENING")
     t = state.get("speak_task")
     if t and not t.done(): t.cancel()
     try: await piper_cancel_active()
@@ -379,7 +358,7 @@ async def on_call_start(caller_id: str):
         await asyncio.sleep(0.05)
     if not inject_host or not inject_port: raise RuntimeError("Failed to get UNICASTRTP_LOCAL_ADDRESS/PORT")
     state["tts_target"] = (inject_host, int(inject_port))
-    print(f"🎯 Piper inject target: {inject_host}:{inject_port}")
+    # print(f"🎯 Piper inject target: {inject_host}:{inject_port}")
 
     # STT Setup
     snoop = ari("POST", f"channels/{caller_id}/snoop", params={"app": APP_NAME, "spy": "in", "whisper": "none"})
@@ -401,17 +380,17 @@ async def on_call_start(caller_id: str):
     register_channel(stt_ext_chan)
     
     ari("POST", f"bridges/{stt_bridge}/addChannel", params={"channel": stt_ext_chan})
-    print(f"🎤 STT RTP destination: udp://{STT_EXTERNAL_HOST}")
-    print("✅ Call setup complete")
+    # print(f"🎤 STT RTP destination: udp://{STT_EXTERNAL_HOST}")
+    print("Call STARTED")
 
     # --- INITIAL GREETING ---
-    print("👋 Triggering initial greeting (No Gemini)...")
     await set_mode("SPEAK")
-    print("🗣️ TURN: GREETING (Hardcoded)")
+    # print("🗣️ TURN: GREETING")
 
     host, port = state["tts_target"]
     greeting_text = "Hello! I am Sarah from Barbie Builders. How can I help you today?"
-    
+    print("PIPER :",greeting_text)
+
     # Record greeting in transcript
     state["transcript"].append({
         "speaker": "agent",
@@ -420,18 +399,52 @@ async def on_call_start(caller_id: str):
     })
 
     async def _greet():
+        stream_id = None
         try:
-            status = await piper_stream_say(greeting_text, host, port)
-            print("🗣️ Greeting status:", status)
+            # Use the exact same streaming protocol as _speak():
+            stream_id = str(uuid.uuid4())
+            state["active_stream_id"] = stream_id
+
+            loop = asyncio.get_running_loop()
+            done_fut = loop.create_future()
+            state["piper_waiters"][stream_id] = done_fut
+
+            await piper_send({"cmd": "begin", "id": stream_id, "host": host, "port": int(port)})
+            await piper_send({"cmd": "chunk", "id": stream_id, "text": greeting_text})
+
+            status = await done_fut
+            # print("🗣️ Greeting status:", status)
+
+        except asyncio.CancelledError:
+            # If barge-in cancels greeting, hard-cancel Piper stream too.
+            try:
+                if stream_id:
+                    await asyncio.shield(piper_send({"cmd": "cancel", "id": stream_id}))
+            except Exception:
+                pass
+            raise
+
         except Exception as e:
             print("❌ Greeting failed:", e)
+
         finally:
+            # Always send end (safe even if Piper already stopped)
+            try:
+                if stream_id:
+                    await asyncio.shield(piper_send({"cmd": "end", "id": stream_id}))
+            except Exception:
+                pass
+
+            if state.get("active_stream_id") == stream_id:
+                state["active_stream_id"] = None
+
             if state.get("call_active"):
                 await asyncio.sleep(POST_TTS_LISTEN_GUARD_SEC)
                 await set_mode("LISTEN")
-                print("🎧 TURN: LISTEN")
+                # print("____LISTENING____")
 
     state["speak_task"] = asyncio.create_task(_greet())
+
 
 async def save_mom_as_pdf(mom_markdown: str, filename: str, caller_id: str = None):
     """
@@ -540,7 +553,7 @@ async def save_mom_as_pdf(mom_markdown: str, filename: str, caller_id: str = Non
             
             <div class="footer">
                 <p>Generated automatically by Barbie Builders AI Sales Assistant</p>
-                <p>Document ID: MoM-{caller_id or 'UNKNOWN'}-{datetime.now().strftime("%Y%m%d%H%M%S")}</p>
+                <p>Document ID: MoM-{caller_id}-{datetime.now().strftime("%d%m")}</p>
             </div>
         </body>
         </html>
@@ -556,18 +569,18 @@ async def save_mom_as_pdf(mom_markdown: str, filename: str, caller_id: str = Non
 
 
 async def on_call_end():
-    print("🧹 Starting cleanup...")
+    # print("🧹 Starting cleanup...")   
     
      # --- MOM GENERATION ---
     transcript = state.get("transcript", [])
     caller_id = state.get("caller_id", "unknown")
     
     if transcript and len(transcript) > 1:
-        print("📝 Generating Minutes of Meeting...")
+        print("\nGenerating  Minutes of Meeting")
         try:
             mom_content = await gemini_thinker.generate_mom(transcript)
             
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            timestamp = time.strftime("%d%m")
             pdf_filename = f"MoM_{caller_id}_{timestamp}.pdf"
             
             # Pass caller_id to the PDF generator
@@ -605,13 +618,14 @@ async def on_call_end():
     for k in ("caller_id", "call_bridge", "stt_bridge", "snoop_id", "stt_ext_chan", "tts_ext_chan"):
         state[k] = None
     
-    print(f"✨ Cleanup complete. Remaining tracked channels: {len(ALL_CREATED_CHANNELS)}")
+    # print(f"✨ Cleanup complete. Remaining tracked channels: {len(ALL_CREATED_CHANNELS)}")
+    print("CALL ENDED")
 
 async def main():
     await ensure_whisper_running()
     await ensure_piper_running()
     await set_mode("IDLE")
-    print("🚀 ARI orchestrator running (Gemini + Piper + MoM)")
+    # print("🚀 ARI orchestrator running (Gemini + Piper + MoM)")
     async with websockets.connect(WS_URL, ping_interval=30) as ws:
         async for msg in ws:
             ev = json.loads(msg)
@@ -623,7 +637,7 @@ async def main():
                 if is_internal_channel(ch): continue
                 caller_id = ch.get("id")
                 if not caller_id or state["call_active"]: continue
-                print("📞 Incoming call:", caller_id)
+                # print("📞 Incoming call:", caller_id)
                 try: await on_call_start(caller_id)
                 except Exception as e:
                     print("❌ call setup failed:", e)
@@ -642,7 +656,7 @@ async def main():
                 if cid in ALL_CREATED_CHANNELS:
                     unregister_channel(cid)
                 if cid == state.get("caller_id"):
-                    print("🛑 StasisEnd (Caller left):", cid)
+                    # print("🛑 StasisEnd (Caller left):", cid)
                     await on_call_end()
 
 if __name__ == "__main__":

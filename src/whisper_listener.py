@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 import sys, socket, struct, time, json, audioop, traceback, threading
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor
-
 import numpy as np
 import torch
 from scipy.signal import resample_poly
@@ -42,7 +40,7 @@ SILENCE_FRAMES_TO_END = 10      # ~320ms silence
 BARGE_CONSEC_SPEECH_FRAMES = 3  # ~100ms speech to trigger interrupt
 MIN_UTTER_SEC = (BARGE_CONSEC_SPEECH_FRAMES * FRAME_SECONDS) - 0.01
 
-PRE_ROLL_SEC = 1.0
+PRE_ROLL_SEC = 2 * MIN_UTTER_SEC
 PRE_ROLL_SAMPLES = int(IN_SR * PRE_ROLL_SEC)
 
 _mode_lock = threading.Lock()
@@ -79,10 +77,10 @@ def stdin_control_thread():
     except Exception:
         pass
 
-print("🔄 Loading Whisper + Silero VAD...", file=sys.stderr)
+# print("🔄 Loading Whisper + Silero VAD...", file=sys.stderr)
 model = WhisperModel("base.en", device="cpu", compute_type="int8")
 vad_model = load_silero_vad()
-print("✅ Whisper streaming listener ready", file=sys.stderr)
+# print("✅ Whisper streaming listener ready", file=sys.stderr)
 
 def parse_rtp(packet: bytes):
     if len(packet) < 12: return None
@@ -123,7 +121,7 @@ def run_listener_forever():
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind((LISTEN_IP, LISTEN_PORT))
 
-    print(f"🎧 Listening RTP ulaw on udp://{LISTEN_IP}:{LISTEN_PORT}", file=sys.stderr)
+    # print(f"🎧 Listening RTP ulaw on udp://{LISTEN_IP}:{LISTEN_PORT}", file=sys.stderr)
 
     pcm_buf = deque()
     pre_roll = deque(maxlen=PRE_ROLL_SAMPLES)
