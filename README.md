@@ -29,6 +29,9 @@ This project is an **AI-Powered Customer Engagement Platform** designed to autom
 
 ---
 
+<img width="1408" height="752" alt="Image" src="https://github.com/user-attachments/assets/21c385ca-f260-43e0-9e8c-16a2d1d8f743" />
+
+
 ## Tech Stack
 | Component | Technology | Description |
 | :--- | :--- | :--- |
