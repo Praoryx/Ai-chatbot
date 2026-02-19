@@ -9,7 +9,7 @@ A contextual, low-latency AI receptionist and sales agent, capable of handling i
 This project is an **AI-Powered Customer Engagement Platform** designed to automate Inbound and Outbound calls for a real estate company ("Barbie Builders"). The system acts as a Smart Receptionist that qualifies leads, answers queries about properties (Apartments, Villas, Plots), and automatically generates a PDF summary of the conversation.
 
 ##  Key Features
-* **Contextual Intelligence:** Powered by **Gemini 2.5 Flash**, the agent understands location context and user intent.
+* **Contextual Intelligence:** Powered by **Gemini**, the agent understands location context and user intent.
 * **Low Latency:** Uses streaming responses (Piper TTS + Gemini Streaming) to achieve conversational speeds < 2 seconds.
 * **Barge-In Support:** The agent stops speaking immediately if the user interrupts, mimicking natural human conversation.
 * **Automated MoM:** Generates a structured **Minutes of Meeting PDF** containing customer details, budget, and action items immediately after the call.
