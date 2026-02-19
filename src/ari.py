@@ -47,7 +47,7 @@ ORIGINATE_TIMEOUT = int(os.getenv("ORIGINATE_TIMEOUT", "30"))
 
 GREETING_TEXT = os.getenv(
     "GREETING_TEXT",
-    "Hello! I am Sarah from Barbie Builders. How can I help you today?"
+    "Hello! I am Sarah from Barbie Builders. How can I help you today in your real estate needs?"
 )
 
 # =======================
