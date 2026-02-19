@@ -52,8 +52,8 @@ This project is an **AI-Powered Customer Engagement Platform** designed to autom
 ### 2. Installation
 Clone the repository and install dependencies:
 ```bash
-git clone <your-repo-url>
-cd <your-repo-folder>
+git clone https://github.com/devansharora710/Ai-chatbot
+cd Ai-chatbot
 pip install -r requirements.txt
 ```
 
