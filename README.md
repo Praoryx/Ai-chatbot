@@ -14,7 +14,10 @@ This project is an **AI-Powered Customer Engagement Platform** designed to autom
 * **Barge-In Support:** The agent stops speaking immediately if the user interrupts, mimicking natural human conversation.
 * **Automated MoM:** Generates a structured **Minutes of Meeting PDF** containing customer details, budget, and action items immediately after the call.
 * **Full Duplex Audio:** Utilizes Asterisk External Media (RTP) for raw audio processing.
+* 
+${\color{blue}This\ is\ blue\ text}$
 
+$${\color{red}Color \space your \space \color{green}.md \space file \space \color{blue}in \space Github}$$
 
 
 ## Architecture
