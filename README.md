@@ -1,5 +1,5 @@
 # AI Voice Agent (CPaaS)
-### Team: ${\color{#FFFF00}Barbie}$
+### Team: ${\color{#E21683}Barbie}$
 #### Event: UDYAM'26 - DevBits
 A contextual, low-latency AI receptionist and sales agent, capable of handling interruptions and generating Minutes of Meeting (MoM).
 
