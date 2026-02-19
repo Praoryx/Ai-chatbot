@@ -55,3 +55,10 @@ Clone the repository and install dependencies:
 git clone <your-repo-url>
 cd <your-repo-folder>
 pip install -r requirements.txt
+```
+
+
+
+## Below is a video example of a sample call 
+
+https://github.com/user-attachments/assets/e54e563b-835f-4025-b9d3-8a2e8f0f1ace
