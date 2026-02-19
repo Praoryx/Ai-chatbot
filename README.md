@@ -27,11 +27,10 @@ This project is an **AI-Powered Customer Engagement Platform** designed to autom
 5.  **TTS:** **Piper** (running locally) converts the text stream to audio and sends RTP packets back to Asterisk.
 6.  **Orchestrator:** `ari.py` manages the call state via WebSocket.
 
----
-
+### Architectural Diagram
 <img width="1408" height="752" alt="Image" src="https://github.com/user-attachments/assets/21c385ca-f260-43e0-9e8c-16a2d1d8f743" />
 
-
+---
 ## Tech Stack
 | Component | Technology | Description |
 | :--- | :--- | :--- |
