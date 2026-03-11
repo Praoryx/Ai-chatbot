@@ -12,6 +12,7 @@ from weasyprint import HTML
 
 import gemini_thinker
 from mom_pdf_template import render_mom_html
+from sarvam_transcriber import sarvam_generate_mom
 
 
 # =======================
@@ -34,6 +35,7 @@ STT_EXTERNAL_HOST = f"127.0.0.1:{STT_LISTEN_PORT}"
 TTS_EXTERNAL_HOST = f"127.0.0.1:{TTS_SOURCE_PORT}"
 FORMAT = "ulaw"
 
+# BASE_DIR = Path(__file__).parent.parent
 WHISPER_SCRIPT = os.path.abspath(os.getenv("WHISPER_SCRIPT", "./whisper_listener.py"))
 PIPER_WORKER = os.path.abspath(os.getenv("PIPER_WORKER", "./piper_worker.py"))
 
@@ -592,7 +594,7 @@ async def originate_outbound():
 # =======================
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--mode", choices=["inbound", "outbound"], default=None)
+    p.add_argument("--mode", choices=["inbound", "outbound", "generate-mom"], default=None)
     p.add_argument("--target", default=None)
     p.add_argument("--dial-endpoint", default=None)
     p.add_argument("--callerid", default=None)
@@ -627,8 +629,13 @@ async def main():
 
     mode = (args.mode or "").strip().lower()
     if not mode:
-        mode = ask("Mode? (inbound/outbound)", "inbound").lower()
+        mode = ask("Mode? (inbound/outbound/generate mom)", "inbound").lower()
 
+    if mode == "generate mom":
+        print("✅ Mode: GENERATE MOM")
+        await sarvam_generate_mom()  # NO ARGUMENTS
+        return  # Exit after MoM
+    
     if mode == "outbound":
         state["run_mode"] = "OUTBOUND"
 
@@ -714,7 +721,6 @@ async def main():
 
     finally:
         await shutdown_procs()
-
 
 if __name__ == "__main__":
     try:
