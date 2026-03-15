@@ -1,5 +1,6 @@
 Supported audio formats for Mom generation are :
 
+mpeg
 mp3
 wav
-mpeg
+aac
